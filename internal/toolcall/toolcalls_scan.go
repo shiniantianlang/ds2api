@@ -239,6 +239,11 @@ func consumeToolMarkupNamePrefixOnce(lower, text string, idx int) (int, bool) {
 	if next, ok := consumeToolMarkupPipe(text, idx); ok {
 		return next, true
 	}
+	// Skip full-width low line ▁ (U+2581) used as separator in some model
+	// outputs, e.g. <｜DSML▁tool_calls｜>.
+	if strings.HasPrefix(text[idx:], "▁") {
+		return idx + len("▁"), true
+	}
 	// Skip markdown bold/italic markers that some models wrap around DSML tags,
 	// e.g. <**DSML|tool_calls**> or <*DSML|invoke*>.
 	if idx < len(text) && text[idx] == '*' {
@@ -258,8 +263,9 @@ func consumeToolMarkupNamePrefixOnce(lower, text string, idx int) (int, bool) {
 }
 
 func hasToolMarkupNamePrefix(lowerTail string) bool {
+	norm := strings.ReplaceAll(lowerTail, "▁", "_")
 	for _, name := range toolMarkupNames {
-		if strings.HasPrefix(lowerTail, name.raw) || strings.HasPrefix(name.raw, lowerTail) {
+		if strings.HasPrefix(norm, name.raw) || strings.HasPrefix(name.raw, norm) {
 			return true
 		}
 	}
@@ -267,12 +273,28 @@ func hasToolMarkupNamePrefix(lowerTail string) bool {
 }
 
 func matchToolMarkupName(lower string, start int, dsmlLike bool) (string, int) {
+	// Normalize full-width low line ▁ (U+2581) to _ so that variants like
+	// "tool▁calls" match "tool_calls". The byte length changes (3→1) so we
+	// measure against the original slice after a successful match.
+	tail := lower[start:]
+	norm := strings.ReplaceAll(tail, "▁", "_")
 	for _, name := range toolMarkupNames {
 		if name.dsmlOnly && !dsmlLike {
 			continue
 		}
-		if strings.HasPrefix(lower[start:], name.raw) {
-			return name.canonical, len(name.raw)
+		if strings.HasPrefix(norm, name.raw) {
+			// Count how many original bytes the match spans by walking the
+			// original tail for name.raw characters, expanding each ▁ (3 bytes).
+			matchedBytes := 0
+			for ci := 0; ci < len(name.raw); {
+				if strings.HasPrefix(tail[matchedBytes:], "▁") {
+					matchedBytes += len("▁")
+				} else {
+					matchedBytes++
+				}
+				ci++
+			}
+			return name.canonical, matchedBytes
 		}
 	}
 	return "", 0

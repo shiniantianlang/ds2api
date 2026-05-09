@@ -1142,3 +1142,84 @@ func TestScanToolMarkupTagAtMarkdownBold(t *testing.T) {
 		})
 	}
 }
+
+// TestParseToolCallsFullwidthDSMLVariant tests that full-width character variants
+// ｜ (U+FF5C) and ▁ (U+2581) in DSML tags are normalized and parsed correctly.
+// Real-world sample: <｜DSML▁tool_calls｜> ... </｜DSML▁tool_calls>
+func TestParseToolCallsFullwidthDSMLVariant(t *testing.T) {
+	text := "<｜DSML▁tool_calls｜>" +
+		"<｜DSML▁invoke name=\"search_files\">" +
+		"<｜DSML▁parameter name=\"path\"><![CDATA[/home/simon/opt/litellm/config.yaml]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"pattern\"><![CDATA[GLM-5\\.1]]></|DSML▁parameter>" +
+		"</|DSML▁invoke>" +
+		"</｜DSML▁tool_calls>"
+
+	calls := ParseToolCalls(text, []string{"search_files"})
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call from fullwidth DSML variant, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "search_files" {
+		t.Fatalf("call name = %q, want search_files", calls[0].Name)
+	}
+	if calls[0].Input["path"] != "/home/simon/opt/litellm/config.yaml" {
+		t.Fatalf("call path = %q", calls[0].Input["path"])
+	}
+	if calls[0].Input["pattern"] != `GLM-5\.1` {
+		t.Fatalf("call pattern = %q", calls[0].Input["pattern"])
+	}
+}
+
+// TestParseToolCallsFullwidthDSMLRealWorldMultiInvoke tests the exact real-world
+// sample from 新的回复.txt with multiple invoke blocks.
+func TestParseToolCallsFullwidthDSMLRealWorldMultiInvoke(t *testing.T) {
+	text := "<｜DSML▁tool_calls｜>" +
+		"<｜DSML▁invoke name=\"search_files\">" +
+		"<｜DSML▁parameter name=\"path\"><![CDATA[/home/simon/opt/litellm/config.yaml]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"pattern\"><![CDATA[GLM-5\\.1]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"target\"><![CDATA[content]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"output_mode\"><![CDATA[content]]></|DSML▁parameter>" +
+		"</|DSML▁invoke>" +
+		"<｜DSML▁invoke name=\"read_file\">" +
+		"<｜DSML▁parameter name=\"offset\"><![CDATA[1]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"limit\"><![CDATA[6]]></|DSML▁parameter>" +
+		"<｜DSML▁parameter name=\"path\"><![CDATA[/home/simon/opt/litellm/config.yaml]]></|DSML▁parameter>" +
+		"</|DSML▁invoke>" +
+		"</｜DSML▁tool_calls>"
+
+	calls := ParseToolCalls(text, []string{"search_files", "read_file"})
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "search_files" {
+		t.Fatalf("call[0] name = %q, want search_files", calls[0].Name)
+	}
+	if calls[1].Name != "read_file" {
+		t.Fatalf("call[1] name = %q, want read_file", calls[1].Name)
+	}
+}
+
+func TestScanToolMarkupTagAtFullwidthVariant(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantName string
+		wantOk   bool
+	}{
+		{"fullwidth pipe and lowline", "<｜DSML▁tool_calls｜>", "tool_calls", true},
+		{"fullwidth pipe only", "<｜tool_calls>", "tool_calls", true},
+		{"fullwidth invoke", "<｜DSML▁invoke name=\"foo\">", "invoke", true},
+		{"fullwidth closing", "</｜DSML▁tool_calls｜>", "tool_calls", true},
+		{"fullwidth parameter", "<｜DSML▁parameter name=\"x\">", "parameter", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tag, ok := scanToolMarkupTagAt(tt.input, 0)
+			if ok != tt.wantOk {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOk)
+			}
+			if ok && tag.Name != tt.wantName {
+				t.Fatalf("name = %q, want %q", tag.Name, tt.wantName)
+			}
+		})
+	}
+}

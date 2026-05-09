@@ -56,6 +56,13 @@ func normalizeDSMLToolCallMarkup(text string) (string, bool) {
 	if text == "" {
 		return "", true
 	}
+	// Normalize full-width characters that some models emit:
+	//   ｜ (U+FF5C, full-width vertical line) → | (U+007C)
+	//   ▁ (U+2581, lower one eighth block)    → _ (U+005F)
+	// This is done first so that all downstream phases only deal with
+	// the standard half-width DSML format.
+	text = strings.ReplaceAll(text, "｜", "|")
+	text = strings.ReplaceAll(text, "▁", "_")
 	text = stripMarkdownBoldFromDSMLTags(text)
 	hasAliasLikeMarkup, _ := ContainsToolMarkupSyntaxOutsideIgnored(text)
 	if !hasAliasLikeMarkup {
