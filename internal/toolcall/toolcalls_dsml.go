@@ -1,11 +1,47 @@
 package toolcall
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// dsmlMarkdownBoldRe matches DSML tags wrapped in Markdown bold markers
+// that some models (notably DeepSeek-V4) emit, e.g.
+//
+//	<**DSML|tool_calls**>  →  <|DSML|tool_calls>
+//	</**DSML|invoke**>     →  </|DSML|invoke>
+//	<**DSML|parameter name="code"**>  →  <|DSML|parameter name="code">
+var dsmlMarkdownBoldRe = regexp.MustCompile(`</?\*{1,2}DSML\|`)
+
+func stripMarkdownBoldFromDSMLTags(text string) string {
+	if !strings.Contains(text, "*DSML|") {
+		return text
+	}
+	// Phase 1: strip leading ** inside tags:  <**DSML| → <|DSML|  and  </**DSML| → </|DSML|
+	text = dsmlMarkdownBoldRe.ReplaceAllStringFunc(text, func(match string) string {
+		return strings.Replace(match, "*", "", -1)
+	})
+	// Phase 2: strip trailing ** before > on DSML lines.
+	// Matches: ...DSML|invoke name="..."**>  or  ...DSML|tool_calls**>
+	// We only target lines that still have "DSML|" to avoid touching unrelated bold text.
+	var b strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "DSML|") {
+			line = strings.ReplaceAll(line, "**>", ">")
+			line = strings.ReplaceAll(line, "*>", ">")
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	result := b.String()
+	return result[:len(result)-1] // trim trailing newline added by last Split
+}
 
 func normalizeDSMLToolCallMarkup(text string) (string, bool) {
 	if text == "" {
 		return "", true
 	}
+	text = stripMarkdownBoldFromDSMLTags(text)
 	hasAliasLikeMarkup, _ := ContainsToolMarkupSyntaxOutsideIgnored(text)
 	if !hasAliasLikeMarkup {
 		return text, true

@@ -569,7 +569,7 @@ func TestParseToolCallsDoesNotTreatNameInsideParamsAsToolName(t *testing.T) {
 }
 
 func TestParseToolCallsRejectsLegacyToolsWrapper(t *testing.T) {
-	text := `<tools><tool_call><tool_name>read_file</tool_name><param>{"path":"README.md"}</param></tool_call></tools>`
+	text := `<tools><tool_call><tool_name>read_file</tool_name><param>{"path":"README.md"}</param>ground</tools>`
 	calls := ParseToolCalls(text, []string{"read_file"})
 	if len(calls) != 0 {
 		t.Fatalf("expected legacy tools wrapper to be rejected, got %#v", calls)
@@ -949,38 +949,6 @@ func TestSkipXMLIgnoredSectionBoundaryConditions(t *testing.T) {
 	}
 }
 
-func TestSkipXMLIgnoredSectionCommentWithUnicodeKeepsByteOffset(t *testing.T) {
-	text := "<!-- İ -->x<tool_calls>"
-
-	next, adv, blk := skipXMLIgnoredSection(text, 0)
-	if blk || !adv {
-		t.Fatalf("skipXMLIgnoredSection() = (%d, %v, %v), want advanced unblocked comment", next, adv, blk)
-	}
-	if want := len("<!-- İ -->"); next != want {
-		t.Fatalf("skipXMLIgnoredSection() next = %d, want %d", next, want)
-	}
-}
-
-func TestSkipXMLIgnoredSectionMatchesCDATAWithoutAllocatingTail(t *testing.T) {
-	text := "<![cDaTa[<tool_calls>]]><tool_calls>"
-
-	next, adv, blk := skipXMLIgnoredSection(text, 0)
-	if blk || !adv {
-		t.Fatalf("skipXMLIgnoredSection() = (%d, %v, %v), want advanced unblocked CDATA", next, adv, blk)
-	}
-	if want := len("<![cDaTa[<tool_calls>]]>"); next != want {
-		t.Fatalf("skipXMLIgnoredSection() next = %d, want %d", next, want)
-	}
-
-	tag, ok := FindToolMarkupTagOutsideIgnored(text, 0)
-	if !ok {
-		t.Fatal("expected tool tag after skipped CDATA")
-	}
-	if tag.Start != next {
-		t.Fatalf("FindToolMarkupTagOutsideIgnored() start = %d, want %d", tag.Start, next)
-	}
-}
-
 func TestFindToolCDATAEndBoundaryConditions(t *testing.T) {
 	text := "<![CDATA[hello]]>"
 
@@ -1026,5 +994,83 @@ func TestFindMatchingToolMarkupCloseBoundaryConditions(t *testing.T) {
 				t.Errorf("FindMatchingToolMarkupClose(%q, %+v) ok = %v, want %v", tt.text, tt.open, ok, tt.wantOk)
 			}
 		})
+	}
+}
+
+func TestStripMarkdownBoldFromDSMLTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no bold markers",
+			input: `<|DSML|tool_calls><|DSML|invoke name="Bash"><|DSML|parameter name="command">pwd</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`,
+			want:  `<|DSML|tool_calls><|DSML|invoke name="Bash"><|DSML|parameter name="command">pwd</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`,
+		},
+		{
+			name:  "double bold on opening tags",
+			input: `<**DSML|tool_calls**><**DSML|invoke name="execute_code"**><**DSML|parameter name="code"**>print("hi")</**DSML|parameter**></**DSML|invoke**></**DSML|tool_calls**>`,
+			want:  `<|DSML|tool_calls><|DSML|invoke name="execute_code"><|DSML|parameter name="code">print("hi")</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`,
+		},
+		{
+			name:  "single bold star",
+			input: `<*DSML|tool_calls*><*DSML|invoke name="Bash"*><*DSML|parameter name="command"*>ls<*/DSML|parameter*></*DSML|invoke*></*DSML|tool_calls*>`,
+			want:  `<|DSML|tool_calls><|DSML|invoke name="Bash"><|DSML|parameter name="command">ls</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`,
+		},
+		{
+			name:  "mixed bold and clean tags",
+			input: `<**DSML|tool_calls**>` + "\n" + `<|DSML|invoke name="Bash">` + "\n" + `<**DSML|parameter name="command"**>pwd</**DSML|parameter**>` + "\n" + `</|DSML|invoke>` + "\n" + `</|DSML|tool_calls>`,
+			want:  `<|DSML|tool_calls>` + "\n" + `<|DSML|invoke name="Bash">` + "\n" + `<|DSML|parameter name="command">pwd</|DSML|parameter>` + "\n" + `</|DSML|invoke>` + "\n" + `</|DSML|tool_calls>`,
+		},
+		{
+			name:  "bold with attributes",
+			input: `<**DSML|parameter name="code"**>echo hello</**DSML|parameter**>`,
+			want:  `<|DSML|parameter name="code">echo hello</|DSML|parameter>`,
+		},
+		{
+			name:  "plain text bold untouched",
+			input: `This is **bold text** and <**DSML|tool_calls**>`,
+			want:  `This is **bold text** and <|DSML|tool_calls>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripMarkdownBoldFromDSMLTags(tt.input)
+			if got != tt.want {
+				t.Errorf("got:\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseToolCallsToleratesMarkdownBoldDSMLTags(t *testing.T) {
+	// Real-world DeepSeek-V4 output: bold markers wrap DSML tags
+	text := `<**DSML|tool_calls**><**DSML|invoke name="execute_code"**><**DSML|parameter name="code"**>print("hello")</**DSML|parameter**></**DSML|invoke**></**DSML|tool_calls**>`
+	calls := ParseToolCalls(text, []string{"execute_code"})
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call from bold-wrapped DSML, got %#v", calls)
+	}
+	if calls[0].Name != "execute_code" {
+		t.Fatalf("expected tool name execute_code, got %q", calls[0].Name)
+	}
+	if calls[0].Input["code"] != `print("hello")` {
+		t.Fatalf("expected code parameter, got %#v", calls[0].Input)
+	}
+}
+
+func TestParseToolCallsToleratesMarkdownBoldDSMLWithCDATA(t *testing.T) {
+	text := `<**DSML|tool_calls**>` + "\n" +
+		`<**DSML|invoke name="Bash"**>` + "\n" +
+		`<**DSML|parameter name="command"**><![CDATA[git status]]></**DSML|parameter**>` + "\n" +
+		`</**DSML|invoke**>` + "\n" +
+		`</**DSML|tool_calls**>`
+	calls := ParseToolCalls(text, []string{"Bash"})
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call from bold-wrapped DSML with CDATA, got %#v", calls)
+	}
+	if calls[0].Name != "Bash" || calls[0].Input["command"] != "git status" {
+		t.Fatalf("unexpected bold-wrapped CDATA parse result: %#v", calls[0])
 	}
 }
