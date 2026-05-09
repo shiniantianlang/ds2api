@@ -84,10 +84,17 @@ func rewriteDSMLToolMarkupOutsideIgnored(text string) string {
 				b.WriteByte('/')
 			}
 			b.WriteString(tag.Name)
-			b.WriteString(text[tag.NameEnd : tag.End+1])
-			if text[tag.End] != '>' {
-				b.WriteByte('>')
+			suffix := text[tag.NameEnd : tag.End+1]
+			// Strip trailing markdown bold/italic markers before the closing '>'.
+			// e.g. suffix = ` name="foo"**>` → ` name="foo">`
+			if idx := strings.LastIndex(suffix, ">"); idx >= 0 {
+				before := suffix[:idx]
+				for len(before) > 0 && before[len(before)-1] == '*' {
+					before = before[:len(before)-1]
+				}
+				suffix = before + suffix[idx:]
 			}
+			b.WriteString(suffix)
 			i = tag.End + 1
 			continue
 		}

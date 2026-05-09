@@ -1074,3 +1074,61 @@ func TestParseToolCallsToleratesMarkdownBoldDSMLWithCDATA(t *testing.T) {
 		t.Fatalf("unexpected bold-wrapped CDATA parse result: %#v", calls[0])
 	}
 }
+
+func TestParseToolCallsToleratesMarkdownBoldDSMLRealWorldLeak(t *testing.T) {
+	// Exact text from a real DeepSeek-V4 leak where every DSML tag was wrapped in **
+	text := `<**DSML|tool_calls**>` + "\n" +
+		`  <**DSML|invoke name="search_files"**>` + "\n" +
+		`    <**DSML|parameter name="file_glob"**><**DSML|parameter>*DSML*Markdown*Bold*</**DSML|parameter**>` + "\n" +
+		`    <**DSML|parameter name="path"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>` + "\n" +
+		`    <**DSML|parameter name="target"**><**DSML|parameter>files</**DSML|parameter**>` + "\n" +
+		`  </**DSML|invoke**>` + "\n" +
+		`  <**DSML|invoke name="search_files"**>` + "\n" +
+		`    <**DSML|parameter name="pattern"**><**DSML|parameter>DSML Markdown Bold 泄漏修复记录</**DSML|parameter**>` + "\n" +
+		`    <**DSML|parameter name="path"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>` + "\n" +
+		`    <**DSML|parameter name="target"**><**DSML|parameter>content</**DSML|parameter**>` + "\n" +
+		`  </**DSML|invoke**>` + "\n" +
+		`</**DSML|tool_calls**>`
+
+	calls := ParseToolCalls(text, []string{"search_files"})
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls from real-world bold-wrapped DSML, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "search_files" {
+		t.Fatalf("call[0] name = %q, want search_files", calls[0].Name)
+	}
+	if calls[0].Input["file_glob"] != "*DSML*Markdown*Bold*" {
+		t.Fatalf("call[0] file_glob = %q, want *DSML*Markdown*Bold*", calls[0].Input["file_glob"])
+	}
+	if calls[1].Input["pattern"] != "DSML Markdown Bold 泄漏修复记录" {
+		t.Fatalf("call[1] pattern = %q", calls[1].Input["pattern"])
+	}
+}
+
+func TestScanToolMarkupTagAtMarkdownBold(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantName string
+		wantOk   bool
+	}{
+		{"bold tool_calls", "<**DSML|tool_calls**>", "tool_calls", true},
+		{"bold invoke with attr", `<**DSML|invoke name="Bash"**>`, "invoke", true},
+		{"bold parameter no attr", "<**DSML|parameter**>", "parameter", true},
+		{"bold closing parameter", "</**DSML|parameter**>", "parameter", true},
+		{"single star", "<*DSML|tool_calls*>", "tool_calls", true},
+		{"no bold markers", "<|DSML|tool_calls>", "tool_calls", true},
+		{"standard XML", "<tool_calls>", "tool_calls", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tag, ok := scanToolMarkupTagAt(tt.input, 0)
+			if ok != tt.wantOk {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOk)
+			}
+			if ok && tag.Name != tt.wantName {
+				t.Fatalf("name = %q, want %q", tag.Name, tt.wantName)
+			}
+		})
+	}
+}

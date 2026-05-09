@@ -150,6 +150,11 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 		return ToolMarkupTag{}, false
 	}
 	nameEnd := i + nameLen
+	// Skip markdown bold/italic markers after the tag name (before attributes or closing >),
+	// e.g. <**DSML|tool_calls**> — the ** after "tool_calls" should not break boundary detection.
+	for nameEnd < len(text) && text[nameEnd] == '*' {
+		nameEnd++
+	}
 	nameEndBeforePipes := nameEnd
 	for next, ok := consumeToolMarkupPipe(text, nameEnd); ok; next, ok = consumeToolMarkupPipe(text, nameEnd) {
 		nameEnd = next
@@ -233,6 +238,11 @@ func consumeToolMarkupNamePrefix(lower, text string, idx int) (int, bool) {
 func consumeToolMarkupNamePrefixOnce(lower, text string, idx int) (int, bool) {
 	if next, ok := consumeToolMarkupPipe(text, idx); ok {
 		return next, true
+	}
+	// Skip markdown bold/italic markers that some models wrap around DSML tags,
+	// e.g. <**DSML|tool_calls**> or <*DSML|invoke*>.
+	if idx < len(text) && text[idx] == '*' {
+		return idx + 1, true
 	}
 	if idx < len(text) && (text[idx] == ' ' || text[idx] == '\t' || text[idx] == '\r' || text[idx] == '\n') {
 		return idx + 1, true
