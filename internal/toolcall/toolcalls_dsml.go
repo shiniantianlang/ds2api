@@ -15,7 +15,6 @@ import (
 // Pattern 1: opening tags — ** before DSML| → strip **, emit |DSML|
 // Pattern 2: closing tags — * before /DSML| → strip *
 var dsmlMarkdownBoldOpenRe = regexp.MustCompile(`\*{1,2}(DSML\|)`)
-var dsmlMarkdownBoldCloseRe = regexp.MustCompile(`\*/(DSML\|)`)
 
 func stripMarkdownBoldFromDSMLTags(text string) string {
 	if !strings.Contains(text, "*DSML|") {
@@ -23,8 +22,10 @@ func stripMarkdownBoldFromDSMLTags(text string) string {
 	}
 	// Phase 1a: strip leading ** on opening tags:  **DSML| → |DSML|
 	text = dsmlMarkdownBoldOpenRe.ReplaceAllString(text, "|$1")
-	// Phase 1b: strip leading * on closing tags:  */DSML| → |/DSML|
-	text = dsmlMarkdownBoldCloseRe.ReplaceAllString(text, "|/$1")
+	// Phase 1b: strip leading * on closing tags:  </*DSML| → </|DSML|
+	// Match *</DSML| where * sits between < and /, replace with </|
+	text = strings.ReplaceAll(text, "</*DSML|", "</|DSML|")
+	text = strings.ReplaceAll(text, "</**DSML|", "</|DSML|")
 	// Phase 2: strip trailing ** before > on DSML lines.
 	// We only target lines that contain "DSML|" to avoid touching unrelated bold text.
 	var b strings.Builder
