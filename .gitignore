@@ -28,6 +28,15 @@ webui/dist/
 yarn.lock
 pnpm-lock.yaml
 
+# Local docs (not for upstream)
+对话记录.md
+GIT_GUIDE.md
+SYNC.md
+DSML Markdown Bold 泄漏修复记录.md
+hermes泄露的.txt
+新的回复.txt
+构建出错.txt
+
 # Build artifacts
 dist/
 *.tsbuildinfo
