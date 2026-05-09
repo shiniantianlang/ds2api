@@ -11,19 +11,22 @@ import (
 //	<**DSML|tool_calls**>  →  <|DSML|tool_calls>
 //	</**DSML|invoke**>     →  </|DSML|invoke>
 //	<**DSML|parameter name="code"**>  →  <|DSML|parameter name="code">
-var dsmlMarkdownBoldRe = regexp.MustCompile(`</?\*{1,2}DSML\|`)
+//
+// Pattern 1: opening tags — ** before DSML| → strip **, emit |DSML|
+// Pattern 2: closing tags — * before /DSML| → strip *
+var dsmlMarkdownBoldOpenRe = regexp.MustCompile(`\*{1,2}(DSML\|)`)
+var dsmlMarkdownBoldCloseRe = regexp.MustCompile(`\*/(DSML\|)`)
 
 func stripMarkdownBoldFromDSMLTags(text string) string {
 	if !strings.Contains(text, "*DSML|") {
 		return text
 	}
-	// Phase 1: strip leading ** inside tags:  <**DSML| → <|DSML|  and  </**DSML| → </|DSML|
-	text = dsmlMarkdownBoldRe.ReplaceAllStringFunc(text, func(match string) string {
-		return strings.Replace(match, "*", "", -1)
-	})
+	// Phase 1a: strip leading ** on opening tags:  **DSML| → |DSML|
+	text = dsmlMarkdownBoldOpenRe.ReplaceAllString(text, "|$1")
+	// Phase 1b: strip leading * on closing tags:  */DSML| → |/DSML|
+	text = dsmlMarkdownBoldCloseRe.ReplaceAllString(text, "|/$1")
 	// Phase 2: strip trailing ** before > on DSML lines.
-	// Matches: ...DSML|invoke name="..."**>  or  ...DSML|tool_calls**>
-	// We only target lines that still have "DSML|" to avoid touching unrelated bold text.
+	// We only target lines that contain "DSML|" to avoid touching unrelated bold text.
 	var b strings.Builder
 	for _, line := range strings.Split(text, "\n") {
 		if strings.Contains(line, "DSML|") {
