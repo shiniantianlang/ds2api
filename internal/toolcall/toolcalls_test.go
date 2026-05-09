@@ -1076,23 +1076,30 @@ func TestParseToolCallsToleratesMarkdownBoldDSMLWithCDATA(t *testing.T) {
 }
 
 func TestParseToolCallsToleratesMarkdownBoldDSMLRealWorldLeak(t *testing.T) {
-	// Exact text from a real DeepSeek-V4 leak where every DSML tag was wrapped in **
-	text := `<**DSML|tool_calls**>` + "\n" +
-		`  <**DSML|invoke name="search_files"**>` + "\n" +
-		`    <**DSML|parameter name="file_glob"**><**DSML|parameter>*DSML*Markdown*Bold*</**DSML|parameter**>` + "\n" +
-		`    <**DSML|parameter name="path"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>` + "\n" +
-		`    <**DSML|parameter name="target"**><**DSML|parameter>files</**DSML|parameter**>` + "\n" +
-		`  </**DSML|invoke**>` + "\n" +
-		`  <**DSML|invoke name="search_files"**>` + "\n" +
-		`    <**DSML|parameter name="pattern"**><**DSML|parameter>DSML Markdown Bold 泄漏修复记录</**DSML|parameter**>` + "\n" +
-		`    <**DSML|parameter name="path"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>` + "\n" +
-		`    <**DSML|parameter name="target"**><**DSML|parameter>content</**DSML|parameter**>` + "\n" +
-		`  </**DSML|invoke**>` + "\n" +
-		`</**DSML|tool_calls**>`
+	// Exact real-world leak from DeepSeek-V4 (hermes): bold markers + nested bare parameter tags.
+	// Model emits: <**DSML|parameter name="x"**><**DSML|parameter>value</**DSML|parameter**>
+	// stripMarkdownBoldFromDSMLTags removes ** and flattens the nested bare <|DSML|parameter>.
+	text := "<**DSML|tool_calls**>\n" +
+		"  <**DSML|invoke name=\"search_files\"**>\n" +
+		"    <**DSML|parameter name=\"file_glob\"**><**DSML|parameter>*DSML*Markdown*Bold*</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"path\"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"target\"**><**DSML|parameter>files</**DSML|parameter**>\n" +
+		"  </**DSML|invoke**>\n" +
+		"  <**DSML|invoke name=\"search_files\"**>\n" +
+		"    <**DSML|parameter name=\"file_glob\"**><**DSML|parameter>*DSML*Bold*</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"path\"**><**DSML|parameter>/home/simon/.hermes</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"target\"**><**DSML|parameter>files</**DSML|parameter**>\n" +
+		"  </**DSML|invoke**>\n" +
+		"  <**DSML|invoke name=\"search_files\"**>\n" +
+		"    <**DSML|parameter name=\"pattern\"**><**DSML|parameter>DSML Markdown Bold 泄漏修复记录</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"path\"**><**DSML|parameter>/home/simon/.hermes/notes</**DSML|parameter**>\n" +
+		"    <**DSML|parameter name=\"target\"**><**DSML|parameter>content</**DSML|parameter**>\n" +
+		"  </**DSML|invoke**>\n" +
+		"</**DSML|tool_calls**>"
 
 	calls := ParseToolCalls(text, []string{"search_files"})
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls from real-world bold-wrapped DSML, got %d: %#v", len(calls), calls)
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls from real-world bold-wrapped nested DSML, got %d: %#v", len(calls), calls)
 	}
 	if calls[0].Name != "search_files" {
 		t.Fatalf("call[0] name = %q, want search_files", calls[0].Name)
@@ -1100,8 +1107,11 @@ func TestParseToolCallsToleratesMarkdownBoldDSMLRealWorldLeak(t *testing.T) {
 	if calls[0].Input["file_glob"] != "*DSML*Markdown*Bold*" {
 		t.Fatalf("call[0] file_glob = %q, want *DSML*Markdown*Bold*", calls[0].Input["file_glob"])
 	}
-	if calls[1].Input["pattern"] != "DSML Markdown Bold 泄漏修复记录" {
-		t.Fatalf("call[1] pattern = %q", calls[1].Input["pattern"])
+	if calls[1].Input["file_glob"] != "*DSML*Bold*" {
+		t.Fatalf("call[1] file_glob = %q, want *DSML*Bold*", calls[1].Input["file_glob"])
+	}
+	if calls[2].Input["pattern"] != "DSML Markdown Bold 泄漏修复记录" {
+		t.Fatalf("call[2] pattern = %q", calls[2].Input["pattern"])
 	}
 }
 

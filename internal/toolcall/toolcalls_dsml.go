@@ -40,7 +40,16 @@ func stripMarkdownBoldFromDSMLTags(text string) string {
 		b.WriteByte('\n')
 	}
 	result := b.String()
-	return result[:len(result)-1] // trim trailing newline added by last Split
+	result = result[:len(result)-1] // trim trailing newline added by last Split
+
+	// Phase 3: flatten nested bare parameter tags.
+	// Some models emit:  <|DSML|parameter name="x"><|DSML|parameter>value</|DSML|parameter>
+	// The inner bare <|DSML|parameter> has no attributes and must be removed so the parser
+	// sees:  <|DSML|parameter name="x">value</|DSML|parameter>
+	bareParamOpen := regexp.MustCompile(`<(?:\|)?DSML\|parameter>`)
+	result = bareParamOpen.ReplaceAllString(result, "")
+
+	return result
 }
 
 func normalizeDSMLToolCallMarkup(text string) (string, bool) {
@@ -95,6 +104,9 @@ func rewriteDSMLToolMarkupOutsideIgnored(text string) string {
 				suffix = before + suffix[idx:]
 			}
 			b.WriteString(suffix)
+			if text[tag.End] != '>' && !strings.HasSuffix(suffix, ">") {
+				b.WriteByte('>')
+			}
 			i = tag.End + 1
 			continue
 		}
