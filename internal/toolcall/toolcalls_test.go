@@ -1223,3 +1223,31 @@ func TestScanToolMarkupTagAtFullwidthVariant(t *testing.T) {
 		})
 	}
 }
+
+func TestParseToolCallsFullwidthAngleBrackets(t *testing.T) {
+	// Real sample from a model that emits full-width angle brackets (＜/＞)
+	// and full-width solidus (／) inside DSML markup.
+	// Use Unicode escapes to avoid editor encoding issues.
+	input := "<\uff5cDSML\uff5ctool_calls>\n" +
+		"  <\uff5cDSML\uff5cinvoke name=\"skill_view\">\n" +
+		"    \uff1cparameter name=\"name\"\uff1esubagent-history-search\uff1c/parameter\uff1e\n" +
+		"  \uff1c/DSML\uff5cinvoke\uff1e\n" +
+		"  <\uff5cDSML\uff5cinvoke name=\"skill_view\">\n" +
+		"    \uff1cparameter name=\"name\"\uff1elocal-search\uff1c/parameter\uff1e\n" +
+		"  \uff1c/DSML\uff5cinvoke\uff1e\n" +
+		"  <\uff5cDSML\uff5cinvoke name=\"skill_view\">\n" +
+		"    \uff1cparameter name=\"name\"\uff1esubagent-notes-search\uff1c/parameter\uff1e\n" +
+		"  \uff1c/DSML\uff5cinvoke\uff1e\n" +
+		"<\uff0fDSML\uff5ctool_calls>"
+	calls := ParseToolCalls(input, []string{"skill_view"})
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d: %#v", len(calls), calls)
+	}
+	wantNames := []string{"subagent-history-search", "local-search", "subagent-notes-search"}
+	for i, want := range wantNames {
+		arg, _ := calls[i].Input["name"].(string)
+		if arg != want {
+			t.Errorf("call[%d].Input[\"name\"] = %q, want %q", i, arg, want)
+		}
+	}
+}
