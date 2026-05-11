@@ -58,23 +58,59 @@ func normalizeDSMLToolCallMarkup(text string) (string, bool) {
 	}
 	// Normalize full-width characters that some models emit:
 	//   ｜ (U+FF5C, full-width vertical line) → | (U+007C)
-	//   ▁ (U+2581, lower one eighth block)    → _ (U+005F)
 	//   ＜ (U+FF1C, full-width less-than)     → < (U+003C)
 	//   ＞ (U+FF1E, full-width greater-than)  → > (U+003E)
 	//   ／ (U+FF0F, full-width solidus)       → / (U+002F)
-	// This is done first so that all downstream phases only deal with
-	// the standard half-width DSML format.
 	text = strings.ReplaceAll(text, "｜", "|")
-	text = strings.ReplaceAll(text, "▁", "_")
 	text = strings.ReplaceAll(text, "＜", "<")
 	text = strings.ReplaceAll(text, "＞", ">")
 	text = strings.ReplaceAll(text, "／", "/")
+
+	// ▐ (U+2590) has dual meaning:
+	//   - DSML▐tool_calls → separator (|), when followed by a letter
+	//   - name="x"▐\n     → tag close (>), when followed by <, \n, or end of string
+	text = normalizeTrailingBlockChars(text, "\u2590", "|", ">")
+
+	// ▁ (U+2581) similarly has dual meaning:
+	//   - tool▁calls → underscore (_), inside tag names
+	//   - tag▁\n     → tag close (>), at line end or before <
+	text = normalizeTrailingBlockChars(text, "\u2581", "_", ">")
+
 	text = stripMarkdownBoldFromDSMLTags(text)
 	hasAliasLikeMarkup, _ := ContainsToolMarkupSyntaxOutsideIgnored(text)
 	if !hasAliasLikeMarkup {
 		return text, true
 	}
 	return rewriteDSMLToolMarkupOutsideIgnored(text), true
+}
+
+// normalizeTrailingBlockChars replaces a block-drawing character that has dual
+// meaning in DSML markup. When the character appears before <, \n, or end of
+// string it acts as a missing closing angle bracket (tagClose). All remaining
+// instances are replaced by defaultCh (e.g. "|" for ▐, "_" for ▁).
+func normalizeTrailingBlockChars(text, ch, defaultCh, tagClose string) string {
+	if !strings.Contains(text, ch) {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text) + len(text)/4)
+	i := 0
+	for i < len(text) {
+		if strings.HasPrefix(text[i:], ch) {
+			// Look at the character after this instance.
+			after := i + len(ch)
+			if after >= len(text) || text[after] == '<' || text[after] == '\n' {
+				b.WriteString(tagClose)
+			} else {
+				b.WriteString(defaultCh)
+			}
+			i += len(ch)
+			continue
+		}
+		b.WriteByte(text[i])
+		i++
+	}
+	return b.String()
 }
 
 func rewriteDSMLToolMarkupOutsideIgnored(text string) string {

@@ -1251,3 +1251,70 @@ func TestParseToolCallsFullwidthAngleBrackets(t *testing.T) {
 		}
 	}
 }
+func TestParseToolCallsSample1(t *testing.T) {
+	// 新的回复.txt — standard half-width DSML with CDATA parameters
+	input := "<|DSML|tool_calls>\n" +
+		"  <|DSML|invoke name=\"read_file\">\n" +
+		"    <|DSML|parameter name=\"limit\"><![CDATA[6]]></|DSML|parameter>\n" +
+		"    <|DSML|parameter name=\"offset\"><![CDATA[270]]></|DSML|parameter>\n" +
+		"    <|DSML|parameter name=\"path\"><![CDATA[~/.hermes/config.yaml]]></|DSML|parameter>\n" +
+		"  </|DSML|invoke>\n" +
+		"</|DSML|tool_calls>"
+	calls := ParseToolCalls(input, []string{"read_file"})
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "read_file" {
+		t.Fatalf("name = %q, want read_file", calls[0].Name)
+	}
+	if calls[0].Input["path"] != "~/.hermes/config.yaml" {
+		t.Fatalf("path = %q, want ~/.hermes/config.yaml", calls[0].Input["path"])
+	}
+}
+
+func TestParseToolCallsSample2(t *testing.T) {
+	// 新的回复2.txt — full-width | and ▁ variants with trailing ▁
+	// Use Unicode escapes to avoid editor encoding issues.
+	input := "<\uff5cDSML\u2581tool_calls\u2581\n" +
+		"  <\uff5cDSML\u2581invoke name=\"read_file\"\u2581\n" +
+		"    <\uff5cDSML\u2581parameter name=\"path\"\u2581<![CDATA[/home/simon/.hermes/skills/search/subagent-history-search/SKILL.md]]\u2581<\u2581/DSML\u2581parameter\u2581\n" +
+		"  <\u2581/DSML\u2581invoke\u2581\n" +
+		"  <\uff5cDSML\u2581invoke name=\"read_file\"\u2581\n" +
+		"    <\uff5cDSML\u2581parameter name=\"path\"\u2581<![CDATA[/home/simon/.hermes/skills/search/subagent-notes-search/SKILL.md]]\u2581<\u2581/DSML\u2581parameter\u2581\n" +
+		"  <\u2581/DSML\u2581invoke\u2581\n" +
+		"  <\uff5cDSML\u2581invoke name=\"read_file\"\u2581\n" +
+		"    <\uff5cDSML\u2581parameter name=\"path\"\u2581<![CDATA[/home/simon/.hermes/skills/search/local-search/SKILL.md]]\u2581<\u2581/DSML\u2581parameter\u2581\n" +
+		"  <\u2581/DSML\u2581invoke\u2581\n" +
+		"<\u2581/DSML\u2581tool_calls\u2581"
+	calls := ParseToolCalls(input, []string{"read_file"})
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d: %#v", len(calls), calls)
+	}
+	wantPaths := []string{
+		"/home/simon/.hermes/skills/search/subagent-history-search/SKILL.md",
+		"/home/simon/.hermes/skills/search/subagent-notes-search/SKILL.md",
+		"/home/simon/.hermes/skills/search/local-search/SKILL.md",
+	}
+	for i, want := range wantPaths {
+		arg, _ := calls[i].Input["path"].(string)
+		if arg != want {
+			t.Errorf("call[%d].Input[\"path\"] = %q, want %q", i, arg, want)
+		}
+	}
+}
+
+func TestParseToolCallsSample3(t *testing.T) {
+	// 新的回复3.txt — <dsml_s> wrapper with bare <invoke>/<parameter> tags
+	input := "<dsml_s>\n" +
+		"<invoke name=\"skill_manage\">\n" +
+		"<parameter><![CDATA[{\"action\": \"edit\", \"content\": \"test\", \"name\": \"local-search\"}]]></parameter>\n" +
+		"</invoke>\n" +
+		"</dsml_s>"
+	calls := ParseToolCalls(input, []string{"skill_manage"})
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "skill_manage" {
+		t.Fatalf("name = %q, want skill_manage", calls[0].Name)
+	}
+}

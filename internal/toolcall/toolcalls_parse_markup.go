@@ -15,6 +15,10 @@ var cdataBRSeparatorPattern = regexp.MustCompile(`(?i)<br\s*/?>`)
 
 func parseXMLToolCalls(text string) []ParsedToolCall {
 	wrappers := findXMLElementBlocks(text, "tool_calls")
+	// Some models emit <dsml_s> instead of <tool_calls> as the wrapper.
+	if len(wrappers) == 0 {
+		wrappers = findXMLElementBlocks(text, "dsml_s")
+	}
 	if len(wrappers) == 0 {
 		repaired := repairMissingXMLToolCallsOpeningWrapper(text)
 		if repaired != text {
@@ -91,6 +95,14 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		paramAttrs := parseXMLTagAttributes(paramMatch.Attrs)
 		paramName := strings.TrimSpace(html.UnescapeString(paramAttrs["name"]))
 		if paramName == "" {
+			// Unnamed parameter: use parseInvokeParameterValue to handle
+			// CDATA and other formats, then merge into call input.
+			value := parseInvokeParameterValue("", paramMatch.Body)
+			if m, ok := value.(map[string]any); ok {
+				for k, v := range m {
+					input[k] = v
+				}
+			}
 			continue
 		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body)

@@ -133,7 +133,11 @@ func toolCallInputHasMeaningfulValue(v any) bool {
 
 func looksLikeToolCallSyntax(text string) bool {
 	hasDSML, hasCanonical := ContainsToolCallWrapperSyntaxOutsideIgnored(text)
-	return hasDSML || hasCanonical
+	if hasDSML || hasCanonical {
+		return true
+	}
+	// Some models emit <dsml_s> instead of <tool_calls>.
+	return strings.Contains(strings.ToLower(text), "<dsml_s>")
 }
 
 func stripFencedCodeBlocks(text string) string {

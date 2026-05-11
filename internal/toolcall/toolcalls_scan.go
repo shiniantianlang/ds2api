@@ -139,6 +139,17 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 	for i < len(text) && text[i] == '<' {
 		i++
 	}
+	// Skip ▁ (U+2581) that some models emit before / in closing tags,
+	// e.g. <▁/DSML▐invoke▁ → the ▁ before / must be consumed.
+	// Also skip _ which is what ▁ gets normalized to in
+	// normalizeTrailingBlockChars when it does not precede < or \n.
+	for i < len(text) && (strings.HasPrefix(text[i:], "\u2581") || text[i] == '_') {
+		if strings.HasPrefix(text[i:], "\u2581") {
+			i += len("\u2581")
+		} else {
+			i++
+		}
+	}
 	closing := false
 	if i < len(text) && text[i] == '/' {
 		closing = true
@@ -197,6 +208,18 @@ func IsPartialToolMarkupTagPrefix(text string) bool {
 	i := 1
 	for i < len(text) && text[i] == '<' {
 		i++
+	}
+	if i >= len(text) {
+		return true
+	}
+	// Skip ▁ (U+2581) that may appear before / in closing tags.
+	// Also skip _ which is what ▁ gets normalized to.
+	for i < len(text) && (strings.HasPrefix(text[i:], "\u2581") || text[i] == '_') {
+		if strings.HasPrefix(text[i:], "\u2581") {
+			i += len("\u2581")
+		} else {
+			i++
+		}
 	}
 	if i >= len(text) {
 		return true
@@ -321,6 +344,10 @@ func hasToolMarkupBoundary(text string, idx int) bool {
 	case ' ', '\t', '\n', '\r', '>', '/':
 		return true
 	default:
+		// ▁ (U+2581) acts as a separator/terminator in some model outputs.
+		if strings.HasPrefix(text[idx:], "\u2581") {
+			return true
+		}
 		return false
 	}
 }
